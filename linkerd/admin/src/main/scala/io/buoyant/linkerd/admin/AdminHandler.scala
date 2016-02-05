@@ -62,6 +62,7 @@ object AdminHandler {
                   <li><a href="/delegator">dtab</a></li>
                   <li><a href="/metrics">metrics</a></li>
                   <li><a href="/admin/logging">logging</a></li>
+                  <li><a href="/files/docs/index.html">Documentation</a></li>
                   <li><a href="https://linkerd.io/help/">help</a></li>
                 </ul>
 
