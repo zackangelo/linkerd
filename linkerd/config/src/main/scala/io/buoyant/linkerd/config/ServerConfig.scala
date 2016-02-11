@@ -1,33 +1,37 @@
 package io.buoyant.linkerd.config
 
-import cats.data.NonEmptyList
 import com.google.common.net.InetAddresses
+import com.twitter.finagle.Stack
+import com.twitter.util.{Return, Try}
+import io.buoyant.linkerd.config.types._
 import java.net.{InetAddress, InetSocketAddress}
 
 trait ServerConfig {
-  def ip: Option[String]
-  def port: Option[Int]
+  def ip: Option[InetAddress]
+  def port: Option[Port]
 
   // TODO: unify this code with what's in Server
   private[this] val loopbackIp = InetAddress.getLoopbackAddress
-  private[this] val anyIp = InetAddress.getByAddress(Array(0, 0, 0, 0))
+  private[this] val anyIp = InetAddress.getByAddress(Array[Byte](0, 0, 0, 0))
+  private[this] val defaultIp = loopbackIp
+  private[this] val defaultPort = Port(0)
+
   def addr: InetSocketAddress = new InetSocketAddress(
-    ip map InetAddresses.forString getOrElse loopbackIp,
-    port getOrElse 0
+    ip getOrElse loopbackIp,
+    (port getOrElse defaultPort).port
   )
 
-  def withDefaults(router: RouterConfig.Defaults): ServerConfig.Defaults =
-    new ServerConfig.Defaults(this, router)
+  def validated(router: RouterConfig, prevServers: Seq[ServerConfig]): Try[ServerParams]
 }
 
 object ServerConfig {
+  /*
   class Defaults(base: ServerConfig, router: RouterConfig.Defaults) {
     def ip = base.ip
     def port = base.port
     def addr = base.addr
 
-    val MinValue = 1
-    val MaxValue = math.pow(2, 16) - 1
+
 
     def validPort(port: Int): Boolean = MinValue <= port && port <= MaxValue
 
@@ -59,16 +63,23 @@ object ServerConfig {
   class Validated(defaults: Defaults) {
     def addr = defaults.addr
   }
-
+  */
   def validateServers(
     servers: Seq[ServerConfig],
-    router: RouterConfig.Defaults,
-    previousServers: Seq[ServerConfig.Defaults]
-  ): ValidatedConfig[Seq[ServerConfig.Validated]] = {
-    import cats.std.list._
-    import cats.syntax.traverse._
-    servers.map(_.withDefaults(router).validated(previousServers)).toList.sequenceU
+    router: RouterConfig,
+    previousServers: Seq[ServerConfig]
+  ): Try[Seq[ServerParams]] = {
+    Try.collect(servers.map(_.validated(router, previousServers)))
   }
 }
 
-case class BaseServerConfig(ip: Option[String] = None, port: Option[Int] = None) extends ServerConfig
+// A convenience implementation for cases where the server type doesn't have any specialized configuration.
+// TODO: This is prob not useful since we usually need to type-specialize on the req/rep types
+case class BasicServerConfig(ip: Option[InetAddress], port: Option[Port]) extends ServerConfig {
+  def validated(router: RouterConfig, prevServers: Seq[ServerConfig]): Try[ServerParams] =
+    Return(BasicServerParams(Stack.Params.empty))
+}
+
+trait ServerParams extends ConfigParams
+
+case class BasicServerParams(params: Stack.Params) extends ServerParams

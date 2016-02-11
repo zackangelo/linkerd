@@ -8,6 +8,7 @@ import scala.annotation.tailrec
  * A few utilities for interacting with Jackson.
  */
 object Parsing {
+  // TODO: delete this file entirely!!!!!!!!
 
   class Error(json: JsonParser, msg: String)
     extends JsonParseException(msg, json.getCurrentLocation)
@@ -189,4 +190,5 @@ object Parsing {
           }
       }
   }
+
 }

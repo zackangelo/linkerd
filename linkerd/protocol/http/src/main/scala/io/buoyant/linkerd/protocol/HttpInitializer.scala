@@ -5,6 +5,7 @@ import com.twitter.finagle.{Path, StackBuilder}
 import com.twitter.finagle.buoyant.linkerd._
 import io.buoyant.router.{Http, RoutingFactory}
 
+
 class HttpInitializer extends ProtocolInitializer.Simple {
   val name = "http"
 
@@ -37,7 +38,6 @@ class HttpInitializer extends ProtocolInitializer.Simple {
   /*
    * Router params
    */
-
   val AccessLog = Parsing.Param.Text("httpAccessLog")(http.AccessLogger.param.File(_))
   val UriInDst = Parsing.Param.Boolean("httpUriInDst")(Http.param.UriInDst(_))
   // TODO Forwarded

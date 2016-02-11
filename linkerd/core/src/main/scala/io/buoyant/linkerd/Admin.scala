@@ -1,12 +1,18 @@
 package io.buoyant.linkerd
 
-import com.fasterxml.jackson.core.JsonParser
 import com.twitter.finagle.Stack
+import com.twitter.util.{Return, Try}
+import io.buoyant.linkerd.config.types.Port
 
-case class Admin(params: Stack.Params = Stack.Params.empty) {
+case class Admin(params: Stack.Params = Stack.Params.empty)
 
-  def read(json: JsonParser): Admin = {
-    copy(params = Admin.parser.readObject(json, params))
+case class AdminConfig(port: Option[Port])  {
+  import Admin._
+  def validated: Admin = {
+    Admin(port match {
+      case Some(p) => Stack.Params.empty + AdminPort(p.port)
+      case None => Stack.Params.empty
+    })
   }
 }
 
@@ -15,8 +21,4 @@ object Admin {
   implicit object AdminPort extends Stack.Param[AdminPort] {
     override def default: AdminPort = AdminPort(9990)
   }
-
-  val port = Parsing.Param.Int("port")(AdminPort(_))
-
-  def parser = Parsing.Params(port)
 }

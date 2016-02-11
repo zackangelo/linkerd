@@ -1,12 +1,19 @@
 package io.l5d.experimental
 
 import com.fasterxml.jackson.core.{JsonParser, JsonToken}
+import com.fasterxml.jackson.databind.DeserializationContext
+import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.twitter.finagle._
 import com.twitter.finagle.http.{Request, Response}
 import com.twitter.finagle.param.Label
+import com.twitter.util.Try
 import io.buoyant.k8s.{AuthFilter, EndpointsNamer, SetHostFilter}
-import io.buoyant.k8s.v1.{Api}
+import io.buoyant.k8s.v1.Api
+import io.buoyant.linkerd.NamerConfig
+import io.buoyant.linkerd.config.types.{ Port => TPort }
 import io.buoyant.linkerd.{NamerInitializer, Parsing}
+import io.l5d.experimental.k8s.AuthToken
+import io.l5d.experimental.k8s.Tls.WithoutValidation
 import scala.io.Source
 
 /**
@@ -23,31 +30,26 @@ import scala.io.Source
  */
 object k8s {
 
-  /** The kubernetes master host; default: kubenretes.default.cluster.local */
+  /** The kubernetes master host; default: kubernetes.default.cluster.local */
   case class Host(host: String)
   implicit object Host extends Stack.Param[Host] {
     val default = Host("kubernetes.default.cluster.local")
-    val parser = Parsing.Param.Text("host")(Host(_))
   }
 
   /** The kubernetes master port; default: 443 (https) */
-  case class Port(port: Int)
-  implicit object Port extends Stack.Param[Port] {
-    val default = Port(443)
-    val parser = Parsing.Param.Int("port")(Port(_))
+  implicit object Port extends Stack.Param[TPort] {
+    val default = TPort(443)
   }
 
   /** Whether TLS is used to communicate with the master; default: true */
   case class Tls(enabled: Boolean)
   implicit object Tls extends Stack.Param[Tls] {
     val default = Tls(true)
-    val parser = Parsing.Param.Boolean("tls")(Tls(_))
 
     /** Whether hostname validation is performed with TLS. */
     case class WithoutValidation(enabled: Boolean)
     implicit object WithoutValidation extends Stack.Param[WithoutValidation] {
       val default = WithoutValidation(false)
-      val parser = Parsing.Param.Boolean("tlsWithoutValidation")(WithoutValidation(_))
     }
   }
 
@@ -66,39 +68,17 @@ object k8s {
     // Kubernetes mounts a secrets volume with master authentication
     // tokens.  That's usually what we want.
     val default = AuthToken("")
+  }
 
-    val parser = Parsing.Param("authTokenFile") { (parser, params) =>
-      Parsing.ensureTok(parser, JsonToken.VALUE_STRING) { parser =>
-        val path = parser.getText
-        parser.nextToken()
-        params + AuthToken(Source.fromFile(path).mkString)
-      }
+  object AuthTokenDeserializer extends StdDeserializer[AuthToken](classOf[AuthToken]) {
+    override def deserialize(jp: JsonParser, ctxt: DeserializationContext): AuthToken = {
+      val tokenFile = _parseString(jp, ctxt)
+      AuthToken(Source.fromFile(tokenFile).mkString)
     }
   }
 
-  val parser = Parsing.Params(
-    Host.parser,
-    Port.parser,
-    Tls.parser,
-    Tls.WithoutValidation.parser,
-    AuthToken.parser
-  )
-
   val defaultParams = Stack.Params.empty +
     NamerInitializer.Prefix(Path.Utf8("io.l5d.k8s"))
-}
-
-/**
- * Configures a kubernetes namer.
- */
-class k8s(val params: Stack.Params) extends NamerInitializer {
-  def this() = this(k8s.defaultParams)
-  def withParams(ps: Stack.Params) = new k8s(ps)
-  def withAuthToken(tok: String) = withParams(params + k8s.AuthToken(tok))
-
-  def paramKeys = k8s.parser.keys
-  def readParam(k: String, p: JsonParser) =
-    withParams(k8s.parser.read(k, p, params))
 
   /**
    * Build a Namer backed by a Kubernetes master.
@@ -113,18 +93,30 @@ class k8s(val params: Stack.Params) extends NamerInitializer {
       case (_, k8s.Tls.WithoutValidation(true)) => Http.client.withTlsWithoutValidation
       case _ => Http.client.withTls(setHost.host)
     }
-
-    // namer path -- should we just support a `label`?
-    val path = params[NamerInitializer.Prefix].path.show
-    val auth = params[k8s.AuthToken].filter()
-    val service = client
-      .configured(Label("namer" + path))
-      .filtered(setHost)
-      .filtered(auth)
-      .withStreaming(true)
-      .newService(s"/$$/inet/$host/$port")
-
-    def mkNs(ns: String) = Api(service).namespace(ns)
-    new EndpointsNamer(prefix, mkNs)
   }
 }
+
+
+
+case class k8s(
+    host: Option[String],
+    port: Option[TPort],
+    tls: Option[Boolean],
+    tlsWithoutValidation: Option[Boolean],
+    authTokenFile: Option[AuthToken])
+  extends NamerConfig {
+  import k8s._
+  override def defaultParams = super.defaultParams ++ k8s.defaultParams
+  override def initializerFactory = k8s.Initializer.apply
+  override def params: Try[Stack.Params] = super.params map { ps =>
+    Seq(
+      host.map(Host(_)),
+      port,
+      tls.map(Tls(_)),
+      tlsWithoutValidation.map(WithoutValidation(_)),
+      authTokenFile)
+      .flatten
+      .foldLeft(ps)(_ + _)
+  }
+}
+

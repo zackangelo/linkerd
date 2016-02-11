@@ -1,0 +1,2 @@
+io.buoyant.linkerd.config.http.HttpRouterConfig$Registrar
+io.buoyant.linkerd.config.thrift.ThriftRouterConfig$Registrar

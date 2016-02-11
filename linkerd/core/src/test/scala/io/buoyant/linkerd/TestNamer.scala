@@ -2,7 +2,7 @@ package io.buoyant.linkerd
 
 import com.fasterxml.jackson.core.JsonParser
 import com.twitter.finagle.{Addr, Name, NameTree, Namer, Path, Stack}
-import com.twitter.util.{Activity, Var}
+import com.twitter.util.{Try, Activity, Var}
 
 object TestNamer {
   case class Buh(buh: Boolean)
@@ -15,13 +15,20 @@ object TestNamer {
     NamerInitializer.Prefix(Path.read("/foo"))
 }
 
-class TestNamer(val params: Stack.Params) extends NamerInitializer {
+abstract class TestNamerConfig extends NamerConfig {
+  import TestNamer._
+  var buh: Option[Boolean] = None
+
+  override def defaultParams = TestNamer.defaultParams
+  override def params: Try[Stack.Params] = super.params.map { ps =>
+    buh map { b => ps + Buh(b) } getOrElse ps
+  }
+  override def newInitializer(ps: Stack.Params) = new TestNamer(ps)
+}
+
+class TestNamer(val params: Stack.Params) extends NamerInitializer(params) {
   def this() = this(TestNamer.defaultParams)
   def withParams(ps: Stack.Params) = new TestNamer(ps)
-
-  def paramKeys = TestNamer.Buh.parser.keys
-  def readParam(k: String, p: JsonParser) =
-    withParams(TestNamer.Buh.parser.read(k, p, params))
 
   def newNamer() = new Namer {
     val buh = params[TestNamer.Buh].buh

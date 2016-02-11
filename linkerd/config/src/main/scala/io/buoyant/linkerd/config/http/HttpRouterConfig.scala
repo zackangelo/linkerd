@@ -2,13 +2,20 @@ package io.buoyant.linkerd.config.http
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.jsontype.NamedType
+import com.twitter.finagle.Stack
+import com.twitter.finagle.Stack.Params
 import io.buoyant.linkerd.config._
 
 case class HttpRouterConfig(
   httpUriInDst: Option[Boolean],
-  servers: Option[Seq[BaseServerConfig]]
+  servers: Option[Seq[BasicServerConfig]]
 ) extends RouterConfig {
-  val protocol = HttpRouterConfig.Protocol(httpUriInDst getOrElse false)
+  import HttpRouterConfig._
+
+  def protocolName = Protocol.name
+
+  override private[config] def routerParams(params: Params, servers: Seq[ServerParams]): RouterParams =
+    HttpRouterParams(params, servers)
 }
 
 object HttpRouterConfig {
@@ -16,16 +23,8 @@ object HttpRouterConfig {
     val name = "http"
   }
 
-  case class Protocol(httpUriInDst: Boolean) extends RouterProtocol {
-    def name: String = Protocol.name
-    // There are no invalid HTTP protocol configurations.
-    def validated: ValidatedConfig[Protocol] = valid(this)
-  }
+  class Registrar extends NamedRouterConfig[HttpRouterConfig](Protocol.name)
 }
 
-class HttpRouterConfigRegistrar extends ConfigRegistrar {
-  def register(mapper: ObjectMapper): Unit = {
-    mapper.registerSubtypes(new NamedType(classOf[HttpRouterConfig], HttpRouterConfig.Protocol.name))
-  }
-}
+case class HttpRouterParams(params: Stack.Params, servers: Seq[ServerParams]) extends RouterParams
 
