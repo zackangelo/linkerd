@@ -3,6 +3,8 @@ package io.buoyant.linkerd
 import com.fasterxml.jackson.core.{JsonParser, JsonToken, TreeNode}
 import com.twitter.finagle.Stack
 import com.twitter.finagle.buoyant.TlsClientPrep
+import io.buoyant.linkerd.config.NamedConfig
+import scala.reflect.ClassTag
 
 /**
  * Loadable TLS client configuration module.
@@ -10,7 +12,7 @@ import com.twitter.finagle.buoyant.TlsClientPrep
  * Implementers may read params from the config file and must produce a
  * TlsClientPrep module which will control how this router makes TLS requests.
  */
-trait TlsClientInitializer {
+/*trait TlsClientInitializer {
 
   /** Configuration state. */
   def params: Stack.Params
@@ -32,7 +34,9 @@ trait TlsClientInitializer {
 
   /** The TslClientPrep module that will be used to make TLS requests */
   def tlsClientPrep[Req, Rsp]: TlsClientPrep.Module[Req, Rsp]
-}
+}*/
+
+abstract class TlsClientInitializer[T <: TlsClientInitializer : ClassTag] extends NamedConfig[T]
 
 object TlsClientInitializer {
 

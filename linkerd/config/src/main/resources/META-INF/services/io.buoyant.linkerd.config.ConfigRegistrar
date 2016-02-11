@@ -1,3 +1,0 @@
-io.buoyant.linkerd.config.http.HttpRouterConfigRegistrar
-io.buoyant.linkerd.config.thrift.ThriftRouterConfigRegistrar
-io.buoyant.linkerd.config.namers.FileSystemNamerConfigRegistrar

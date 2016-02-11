@@ -1,6 +1,7 @@
 package io.buoyant.linkerd
 
 import com.fasterxml.jackson.core.{JsonParser, JsonToken}
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.twitter.finagle.util.LoadService
 
 /** A suite of protocol initializers. */

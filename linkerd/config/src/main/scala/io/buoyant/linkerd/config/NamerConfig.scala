@@ -1,8 +1,8 @@
 package io.buoyant.linkerd.config
 
-import cats.Apply
 import com.fasterxml.jackson.annotation.JsonTypeInfo
-import com.twitter.finagle.Path
+import com.twitter.finagle.{Namer, Stack, Path}
+import com.twitter.util.{Return, Try}
 
 /**
  * Read a single namer configuration in the form:
@@ -22,40 +22,22 @@ import com.twitter.finagle.Path
 // TODO: switch to using class names once we have fully replaced the existing system.
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
 trait NamerConfig {
-  var prefix: Option[String] = None
-
-  def withDefaults(linker: LinkerConfig): NamerConfig.Defaults =
-    new NamerConfig.Defaults(this, protocol, linker)
-
-  def protocol: NamerProtocol
-}
-
-trait NamerProtocol {
+  import Try._
+  // These are vars to allow subclasses to avoid the need to know about them
+  var prefix: Option[Path] = None
   def kind: String
-  def validated: ValidatedConfig[NamerProtocol]
-  def defaultPrefix: Option[String] = Some(Path.Utf8(kind).show)
-}
+  def defaultPrefix: Option[Path] = None
 
-object NamerConfig {
-  import cats.std.list._
-  class Defaults(base: NamerConfig, protocol: NamerProtocol, linker: LinkerConfig) {
-    def prefix: Option[String] = base.prefix orElse protocol.defaultPrefix
-    def validated: ValidatedConfig[NamerConfig.Validated] = {
-      def validatedPrefix: ValidatedConfig[Path] = {
-        prefix.fold(invalid[Path](MissingPath)) { pathStr =>
-          try {
-            valid(Path.read(pathStr))
-          } catch {
-            case ex: IllegalArgumentException => invalid(InvalidPath(pathStr, ex))
-          }
-        }
-      }
-
-      Apply[ValidatedConfig].map2(validatedPrefix, protocol.validated) {
-        case (prefix, protocol) => new Validated(prefix, protocol)
-      }
-    }
+  protected def params: Try[Stack.Params] = {
+   /* prefix.foldLeft(Stack.Params.empty)(_ + _)
+    def validatedPrefix: Try[Path] = prefix orElse defaultPrefix orThrow MissingPath*/
+    Return(Stack.Params.empty)
   }
 
-  class Validated(val prefix: Path, val protocol: NamerProtocol)
+  def namer: Try[Namer]
 }
+
+trait NamerParams extends ConfigParams {
+  def namer: Namer
+}
+abstract case class BasicNamerParams(params: Stack.Params) extends NamerParams

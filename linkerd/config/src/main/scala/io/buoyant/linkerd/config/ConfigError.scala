@@ -1,24 +1,12 @@
 package io.buoyant.linkerd.config
 
-import cats.data.NonEmptyList
 import com.fasterxml.jackson.core.JsonParseException
+import com.fasterxml.jackson.databind.jsontype.NamedType
+import com.twitter.finagle.NoStacktrace
 import java.net.InetSocketAddress
 import java.nio.file.InvalidPathException
 
-trait ConfigError {
-  def message: String
-}
-
-object ConfigError {
-  /*
-   * Attempts to transform a parsing exception into one or more ConfigErrors. Unrecognized
-   * exceptions will be re-thrown.
-   */
-  def transform(t: Throwable): NonEmptyList[ConfigError] = t match {
-    case jpe: JsonParseException => NonEmptyList(InvalidSyntax(jpe.getMessage))
-    case _ => throw (t)
-  }
-}
+trait ConfigError extends NoStacktrace
 
 object NoRoutersSpecified extends ConfigError {
   def message = "At least one router must be specified in the configuration."
@@ -35,6 +23,10 @@ object MissingLabel extends ConfigError {
 
 object MissingDtab extends ConfigError {
   def message = "Router missing a DTab"
+}
+
+case class ConflictingSubtypes(t0: NamedType, t1: NamedType) extends ConfigError {
+  def message = s"Conflicting subtypes: $t0, $t1"
 }
 
 case class InvalidDtab(bad: String, ex: IllegalArgumentException) extends ConfigError {

@@ -2,16 +2,19 @@ package io.buoyant.linkerd.config
 
 import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.twitter.finagle.{Dtab, Stack}
+import com.twitter.util.{Throw, Return, Try}
+import scala.util.Success
 
 /**
   * LinkerConfig can configure some "default" settings for its routers; this trait
   * allows those parameters to be shared.
   */
 trait CommonRouterConfig {
-  var baseDtab: Option[String] = None
+  var baseDtab: Option[Dtab] = None
   var failFast: Option[Boolean] = None
   var timeoutMs: Option[Int] = None
 }
+
 
 /*
  * RouterConfig implements the generic configuration for a [[Router]]. All
@@ -24,7 +27,8 @@ trait CommonRouterConfig {
  *   This must implement a `protocol` method, which is described below.
  * * Implement a ConfigRegistrar class, with a Register method to add
  *   the case class above to Jackson's ObjectMapper.
- * * Create a case class (which can be the same as above
+ * * Implement any necessary validation logic in a validated() method, which
+ *   should return a RouterParams instance.
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "protocol")
 trait RouterConfig extends CommonRouterConfig {
@@ -35,32 +39,39 @@ trait RouterConfig extends CommonRouterConfig {
 
   def servers: Option[Seq[ServerConfig]]
 
-  def defaultServer: ServerConfig = BaseServerConfig(None, None)
+  // The following section must be implemented by protocols.
+  def protocolName: String
+  def defaultServer: ServerConfig = BasicServerConfig(None, None)
+  // A protocol implementation must provide both a Server and Router type.
+  private[config] def validatedServers: Try[Seq[ServerParams]] = {
+    Return(Nil)
+  }
+  private[config] def validatedParams: Try[Stack.Params] = {
 
-  def withDefaults(linker: LinkerConfig): RouterConfig.Defaults =
-    new RouterConfig.Defaults(this, protocol, linker)
+    Return(Stack.Params.empty)
+  }
+  private[config] def routerParams(params: Stack.Params, servers: Seq[ServerParams]): RouterParams
 
-  def protocol: RouterProtocol
+  def validated(linker: LinkerConfig, others: Seq[RouterConfig]): Try[RouterParams] = {
+    for {
+      params <- validatedParams
+      servers <- validatedServers
+    } yield routerParams(params, servers)
+  }
+
 }
 
-trait RouterProtocol {
-  def name: String
-  def validated: ValidatedConfig[RouterProtocol]
-}
 
 object RouterConfig {
-  import cats.Apply
-  import cats.std.list._
 
+  /*
   class Defaults(base: RouterConfig, protocol: RouterProtocol, linker: LinkerConfig) {
     def label: String = base.label getOrElse protocol.name
     def failFast: Boolean = base.failFast orElse linker.failFast getOrElse false
-    def baseDtab: String = base.baseDtab orElse linker.baseDtab getOrElse ""
+    def baseDtab: Option[Dtab] = base.baseDtab orElse linker.baseDtab
     def servers: Seq[ServerConfig] = base.servers getOrElse Seq(base.defaultServer)
 
-    def validated(others: Seq[RouterConfig.Defaults]): ValidatedConfig[RouterConfig.Validated] = {
-
-
+    def validated(others: Seq[RouterConfig.Defaults]): ValidatedConfig[RouterParams] = {
       def validatedBaseDtab: ValidatedConfig[Dtab] = {
         try {
           valid(Dtab.read(baseDtab))
@@ -83,8 +94,8 @@ object RouterConfig {
 
       val validatedServers = ServerConfig.validateServers(servers, this, prevServers)
 
-      Apply[ValidatedConfig].map4(validatedLabel, validatedBaseDtab, protocol.validated, validatedServers) { case (label, dtab, protocol, servers) =>
-        new Validated(label, failFast, dtab, protocol, servers)
+      Apply[ValidatedConfig].map3(validatedLabel, protocol.validated, validatedServers) {  (label, protocol, servers) =>
+        new Validated(label, failFast, baseDtab, protocol, servers)
       }
     }
   }
@@ -92,22 +103,22 @@ object RouterConfig {
   class Validated(
     val label: String,
     val failFast: Boolean,
-    val baseDtab: Dtab,
+    val baseDtab: Option[Dtab],
     val protocol: RouterProtocol,
     val servers: Seq[ServerConfig.Validated]
   )
+  */
+  def validateRouters(linker: LinkerConfig, routers: Seq[RouterConfig]): Try[Seq[RouterParams]] = {
 
-  def validateRouters(linker: LinkerConfig)(routers: Seq[RouterConfig]): ValidatedConfig[Seq[RouterConfig.Validated]] = {
-    val (validatedRouters, _) = routers.foldLeft((valid(Seq.empty[Validated]), Seq.empty[RouterConfig.Defaults])) {
+    val (validatedRouters, _) = routers.foldLeft((Seq.empty[Try[RouterParams]], Seq.empty[RouterConfig])) {
       case ((accum, prev), r) =>
-        val defaulted = r.withDefaults(linker)
-        (Apply[ValidatedConfig].map2(accum, defaulted.validated(prev))(_ :+ _), prev :+ defaulted)
+        (accum :+ r.validated(linker, prev), prev :+ r)
     }
-    validatedRouters
+    Try.collect(validatedRouters)
   }
+
 }
 
-trait RouterParams {
-
-  def apply(): Stack.Params
+trait RouterParams extends ConfigParams {
+  def servers: Seq[ServerParams]
 }

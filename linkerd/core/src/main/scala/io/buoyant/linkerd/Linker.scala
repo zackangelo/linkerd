@@ -1,8 +1,10 @@
 package io.buoyant.linkerd
 
 import com.fasterxml.jackson.core.{JsonParser, JsonToken, TreeNode}
+import com.fasterxml.jackson.databind.ObjectMapper
 import com.twitter.finagle.Stack
 import com.twitter.finagle.buoyant.DstBindingFactory
+import io.buoyant.linkerd.config.LinkerConfig
 
 /**
  * Represents the total configuration of a Linkerd process.
@@ -26,7 +28,7 @@ trait Linker {
   def withAdmin(a: Admin): Linker
 
   /**
-   * Read a [[Linker]] from the given parser, using the provided
+   * Read a [[Linker]] from the given ObjectMapper, using the provided
    * protocol support.
    *
    * A linker configuration consists of the following:
@@ -105,7 +107,7 @@ object Linker {
 
     def withAdmin(a: Admin): Linker = copy(admin = a)
 
-    def read(json: JsonParser): Linker = {
+    def read(cfg: LinkerConfig): Linker = {
       // Make a pass through the linker structure, deferring processing
       // of the `routers` list until after all other fields (params)
       // have been processed.
@@ -151,6 +153,7 @@ object Linker {
       tp.nextToken()
       tp.overrideCurrentName("routers")
 
+      cfg.routers
       // Collect routers from config, ensuring that there are no
       // name conflicts and that all servers are configured to bind
       // on distinct sockets.

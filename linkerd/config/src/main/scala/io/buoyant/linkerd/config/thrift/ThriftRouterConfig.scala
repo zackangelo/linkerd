@@ -1,19 +1,19 @@
 package io.buoyant.linkerd.config.thrift
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.databind.jsontype.NamedType
+import com.twitter.finagle.Stack.Params
 import io.buoyant.linkerd.config._
 
 case class ThriftRouterConfig(
   thriftFramed: Option[Boolean],
   thriftMethodInDst: Option[Boolean],
   // TODO: implement ThriftServerConfig
-  servers: Option[Seq[BaseServerConfig]]
-) extends RouterConfig {
-  val protocol = ThriftRouterConfig.Protocol(
-    thriftFramed getOrElse false,
-    thriftMethodInDst getOrElse false
-  )
+  servers: Option[Seq[BasicServerConfig]]
+) extends RouterConfig  {
+  import ThriftRouterConfig._
+  def protocolName = Protocol.name
+
+  override private[config] def routerParams(params: Params, servers: Seq[ServerParams]): RouterParams =
+    ThriftRouterParams(params, servers)
 }
 
 object ThriftRouterConfig {
@@ -21,15 +21,7 @@ object ThriftRouterConfig {
     val name = "thrift"
   }
 
-  case class Protocol(thriftFramed: Boolean, thriftMethodInDst: Boolean) extends RouterProtocol {
-    def name = Protocol.name
-    // None of the Thrift protocol configuration requires validation.
-    def validated = valid(this)
-  }
+  class Registrar extends NamedRouterConfig[ThriftRouterConfig](Protocol.name)
 }
 
-class ThriftRouterConfigRegistrar extends ConfigRegistrar {
-  def register(mapper: ObjectMapper): Unit = {
-    mapper.registerSubtypes(new NamedType(classOf[ThriftRouterConfig], ThriftRouterConfig.Protocol.name))
-  }
-}
+case class ThriftRouterParams(params: Params, servers: Seq[ServerParams]) extends RouterParams
