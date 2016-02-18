@@ -90,6 +90,7 @@ trait ProtocolInitializer {
   /** The default protocol-specific server configuration */
   protected def defaultServer: StackServer[ServerReq, ServerRsp]
 
+  def defaultServerPort: Int
 }
 
 object ProtocolInitializer {
@@ -150,7 +151,7 @@ abstract class RouterConfig {
   var baseDtab: Option[Dtab] = None
   var failFast: Option[Boolean] = None
   var timeoutMs: Option[Int] = None
-  var label: Option[String] = None
+  var label: Option[String] = Some(protocol.name)
   var dstPrefix: Option[String] = None
   var tls: Option[TlsClientConfig] = None
 
@@ -164,7 +165,7 @@ abstract class RouterConfig {
 
   @JsonIgnore
   def router(params: Stack.Params): Router = {
-    protocol.router.withParams(routerParams).serving(
+    protocol.router.withParams(params ++ routerParams).serving(
       servers.map(_.mk(protocol, routerParams[Label].label))
     )
   }

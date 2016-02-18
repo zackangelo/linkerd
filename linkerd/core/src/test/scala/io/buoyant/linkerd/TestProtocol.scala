@@ -110,6 +110,8 @@ abstract class TestProtocol(val name: String) extends ProtocolInitializer.Simple
   }
 
   protected val defaultServer: StackServer[Req, Rsp] = TestServer()
+
+  val defaultServerPort = 13
 }
 
 class PlainConfig extends RouterConfig {

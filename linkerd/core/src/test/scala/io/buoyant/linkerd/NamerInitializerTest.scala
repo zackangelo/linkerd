@@ -11,12 +11,10 @@ class NamerInitializerTest extends FunSuite {
     val mapper = Parser.objectMapper(config)
     TestNamer.registerSubtypes(mapper)
     val cfg = mapper.readValue[Seq[NamerConfig]](config)
-    val foo = Linker.nameInterpreter(cfg)
-    println(foo)
-    foo
+    Linker.nameInterpreter(cfg)
   }
 
-  val kind = "foobar"
+  val kind = "io.buoyant.linkerd.TestNamer"
 
   test(s"parse simple namer") {
     val yaml =

@@ -5,6 +5,7 @@ import com.twitter.finagle.naming.NameInterpreter
 import com.twitter.finagle.util.LoadService
 import com.twitter.finagle.{Namer, Path, Stack}
 import io.buoyant.linkerd.config.Parser
+import io.buoyant.linkerd.ProtocolInitializer.ParamsMaybeWith
 
 /**
  * Represents the total configuration of a Linkerd process.
@@ -31,15 +32,14 @@ object Linker {
     mapper.readValue[LinkerConfig](config).mk
   }
 
-  case class LinkerConfig(namerConfigs: Option[Seq[NamerConfig]], routerConfigs: Seq[RouterConfig], admin: Option[Admin]) {
+  case class LinkerConfig(namers: Option[Seq[NamerConfig]], routers: Seq[RouterConfig], admin: Option[Admin]) {
     def mk: Linker = {
-      val interpreter = nameInterpreter(namerConfigs.toSeq.flatten)
-      val namersParam = Stack.Params.empty + DstBindingFactory.Namer(interpreter)
-      val routers: Seq[Router] = routerConfigs.map(_.router(namersParam))
+      val namersParam = Stack.Params.empty.maybeWith(namers.map(nameInterpreter).map(DstBindingFactory.Namer(_)))
+
       // TODO: validate at least one router
       // TODO: validate no router names conflict
       // TODO: validate no server sockets conflict
-      new Impl(routers, admin.getOrElse(Admin()))
+      new Impl(routers.map(_.router(namersParam)), admin.getOrElse(Admin()))
     }
   }
 

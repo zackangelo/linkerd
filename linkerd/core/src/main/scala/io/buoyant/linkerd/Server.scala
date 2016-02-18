@@ -56,12 +56,12 @@ object Server {
   }
 }
 
-case class ServerConfig(
-  port: Option[Port],
-  ip: Option[InetAddress],
-  tls: Option[TlsServerConfig],
-  label: Option[String]
-) { config =>
+class ServerConfig { config =>
+
+  var port: Option[Port] = None
+  var ip: Option[InetAddress] = None
+  var tls: Option[TlsServerConfig] = None
+  var label: Option[String] = None
 
   @JsonIgnore
   private[this] def tlsParam(certificatePath: String, keyPath: String) =
@@ -77,7 +77,7 @@ case class ServerConfig(
 
     override def label: String = config.label.getOrElse(routerLabel)
 
-    override def port: Int = config.port.map(_.port).getOrElse(0)
+    override def port: Int = config.port.map(_.port).getOrElse(pi.defaultServerPort)
 
     override def protocol: ProtocolInitializer = pi
 

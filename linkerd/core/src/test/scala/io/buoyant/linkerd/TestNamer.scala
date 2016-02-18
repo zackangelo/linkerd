@@ -10,7 +10,7 @@ import io.buoyant.linkerd.config.Parser
 class TestNamer extends NamerInitializer {
   /** Register config subtype */
   override def registerSubtypes(mapper: ObjectMapper): Unit =
-    mapper.registerSubtypes(new NamedType(Parser.jClass[TestNamerConfig], "foobar"))
+    mapper.registerSubtypes(new NamedType(Parser.jClass[TestNamerConfig], "io.buoyant.linkerd.TestNamer"))
 }
 
 object TestNamer extends TestNamer
