@@ -1,6 +1,7 @@
 package io.buoyant.linkerd
 
 import com.twitter.finagle.{Dtab, Stack, param}
+import io.buoyant.linkerd.config.Parser
 import io.buoyant.router.RoutingFactory
 import java.net.InetAddress
 import org.scalatest.FunSuite
@@ -10,8 +11,13 @@ class RouterTest extends FunSuite {
   def parse(
     yaml: String,
     params: Stack.Params = Stack.Params.empty,
-    protos: ProtocolInitializers = TestProtocol.DefaultInitializers
-  ) = Router.read(Yaml(yaml), params, protos, TlsClientInitializers.empty)
+    protos: Seq[ProtocolInitializer] = Seq(TestProtocol.Plain, TestProtocol.Fancy)
+  ): Router = {
+    val mapper = Parser.objectMapper(yaml)
+    for (p <- protos) p.registerSubtypes(mapper)
+    val cfg = mapper.readValue[RouterConfig](yaml)
+    cfg.router(params)
+  }
 
   test("with label") {
     val yaml = """
@@ -33,9 +39,11 @@ servers:
     val yaml = """
 protocol: plain
 label: yoghurt
+servers:
+  - {}
 """
     val router = parse(yaml)
-    assert(router.servers.head.params[Server.Ip].ip.isLoopbackAddress)
+    assert(router.servers.head.ip.isLoopbackAddress)
     assert(router.servers.head.port == 13)
   }
 
@@ -70,7 +78,7 @@ servers:
     assert(router.protocol == TestProtocol.Fancy)
 
     assert(router.params[param.Label].label == TestProtocol.Fancy.name)
-    assert(router.params[TestProtocol.Fancy.Pants].fancy)
+    assert(router.params[TestProtocol.FancyParam].pants)
 
     assert(router.servers.size == 1)
     assert(router.servers.head.addr.getAddress == InetAddress.getLoopbackAddress)
@@ -78,7 +86,7 @@ servers:
 
     assert(router.servers.head.router == "fancy")
     assert(router.servers.head.params[param.Label].label == "127.0.0.1/1234")
-    assert(router.servers.head.params[TestProtocol.Fancy.Pants].fancy)
+    assert(router.servers.head.params[TestProtocol.FancyParam].pants)
 
   }
 

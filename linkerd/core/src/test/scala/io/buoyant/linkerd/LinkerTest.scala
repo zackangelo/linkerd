@@ -4,7 +4,8 @@ import com.fasterxml.jackson.core.JsonToken
 import com.twitter.finagle.Dtab
 import com.twitter.finagle.buoyant.DstBindingFactory
 import com.twitter.finagle.naming.DefaultInterpreter
-import io.buoyant.linkerd.Admin.AdminPort
+import io.buoyant.linkerd.Linker.LinkerConfig
+import io.buoyant.linkerd.config.Parser
 import io.buoyant.router.RoutingFactory
 import java.net.{InetAddress, InetSocketAddress}
 import org.scalatest.FunSuite
@@ -13,9 +14,15 @@ class LinkerTest extends FunSuite {
 
   def parse(
     yaml: String,
-    protos: ProtocolInitializers = TestProtocol.DefaultInitializers,
-    namers: NamerInitializers = NamerInitializers(new TestNamer)
-  ) = Linker.mk(protos, namers, TlsClientInitializers.empty).read(Yaml(yaml))
+    protos: Seq[ProtocolInitializer] = Seq(TestProtocol.Plain, TestProtocol.Fancy),
+    namers: Seq[NamerInitializer] = Seq(TestNamer)
+  ) = {
+    val mapper = Parser.objectMapper(yaml)
+    for (p <- protos) p.registerSubtypes(mapper)
+    for (n <- namers) n.registerSubtypes(mapper)
+    val cfg = mapper.readValue[LinkerConfig](yaml)
+    cfg.mk
+  }
 
   test("basic") {
     val linker = parse("""
@@ -29,7 +36,7 @@ routers:
 """)
     val routers = linker.routers
 
-    val DstBindingFactory.Namer(namer) = linker.params[DstBindingFactory.Namer]
+    val DstBindingFactory.Namer(namer) = linker.routers.head.params[DstBindingFactory.Namer]
     assert(namer == DefaultInterpreter)
 
     assert(routers.size == 2)
@@ -42,7 +49,7 @@ routers:
 
     assert(routers(1).label == "fancy")
     assert(routers(1).protocol == TestProtocol.Fancy)
-    assert(routers(1).params[TestProtocol.Fancy.Pants].fancy == false)
+    assert(routers(1).params[TestProtocol.FancyParam].pants == false)
     assert(routers(1).servers.size == 1)
     assert(routers(1).servers(0).addr.getAddress == InetAddress.getLoopbackAddress)
     assert(routers(1).servers(0).addr.getPort == 2)
@@ -188,7 +195,7 @@ routers:
   - port: 1
 """
     val linker = parse(yaml)
-    val DstBindingFactory.Namer(namer) = linker.params[DstBindingFactory.Namer]
+    val DstBindingFactory.Namer(namer) = linker.routers.head.params[DstBindingFactory.Namer]
     assert(namer != DefaultInterpreter)
   }
 
@@ -202,6 +209,6 @@ routers:
   - port: 1
 """
     val linker = parse(yaml)
-    assert(linker.admin.params[AdminPort].port == 9991)
+    assert(linker.admin.port.port == 9991)
   }
 }
