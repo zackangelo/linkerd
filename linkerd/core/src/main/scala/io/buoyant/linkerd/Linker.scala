@@ -1,5 +1,6 @@
 package io.buoyant.linkerd
 
+import com.twitter.finagle.Stack.Param
 import com.twitter.finagle.buoyant.DstBindingFactory
 import com.twitter.finagle.naming.NameInterpreter
 import com.twitter.finagle.util.LoadService
@@ -16,20 +17,24 @@ import io.buoyant.linkerd.ProtocolInitializer.ParamsMaybeWith
 trait Linker {
   def routers: Seq[Router]
   def admin: Admin
+
+  def configured[T: Stack.Param](t: T): Linker
 }
 
 object Linker {
+
+  def load(config: String, configInitializers: Seq[ConfigInitializer]): Linker = {
+    val mapper = Parser.objectMapper(config)
+    for (ci <- configInitializers) ci.registerSubtypes(mapper)
+    // TODO: Store the LinkerConfig so that it can be serialized out later
+    mapper.readValue[LinkerConfig](config).mk
+  }
 
   def load(config: String): Linker = {
     val protocols = LoadService[ProtocolInitializer]
     val namers = LoadService[NamerInitializer]
     val clientTls = LoadService[TlsClientInitializer]
-    val mapper = Parser.objectMapper(config)
-    for (p <- protocols) p.registerSubtypes(mapper)
-    for (n <- namers) n.registerSubtypes(mapper)
-    for (c <- clientTls) c.registerSubtypes(mapper)
-    // TODO: Store the LinkerConfig so that it can be serialized out later
-    mapper.readValue[LinkerConfig](config).mk
+    load(config, protocols ++ namers ++ clientTls)
   }
 
   case class LinkerConfig(namers: Option[Seq[NamerConfig]], routers: Seq[RouterConfig], admin: Option[Admin]) {
@@ -55,5 +60,8 @@ object Linker {
   private case class Impl(
     routers: Seq[Router],
     admin: Admin
-  ) extends Linker
+  ) extends Linker {
+    override def configured[T: Param](t: T) =
+      copy(routers = routers.map(_.configured(t)))
+  }
 }

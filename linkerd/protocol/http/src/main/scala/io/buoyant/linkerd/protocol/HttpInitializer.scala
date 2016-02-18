@@ -9,6 +9,7 @@ import com.twitter.finagle.{Path, Stack, StackBuilder}
 import io.buoyant.linkerd.config.Parser
 import io.buoyant.linkerd.protocol.http.AccessLogger
 import io.buoyant.router.{Http, RoutingFactory}
+import io.buoyant.linkerd.ProtocolInitializer.ParamsMaybeWith
 
 class HttpInitializer extends ProtocolInitializer.Simple {
   val name = "http"
@@ -41,6 +42,8 @@ class HttpInitializer extends ProtocolInitializer.Simple {
   override def registerSubtypes(mapper: ObjectMapper): Unit = {
     mapper.registerSubtypes(new NamedType(Parser.jClass[HttpConfig], name))
   }
+
+  override def defaultServerPort: Int = 4140
 }
 
 object HttpInitializer extends HttpInitializer

@@ -8,7 +8,7 @@ import com.twitter.finagle._
 import com.twitter.finagle.param.Label
 import com.twitter.finagle.server.StackServer
 import com.twitter.util.Time
-import io.buoyant.linkerd.ProtocolInitializer.ParamsMaybeWith
+import io.buoyant.linkerd.ProtocolInitializer.{MaybeTransform, ParamsMaybeWith}
 import io.buoyant.router._
 import java.net.InetSocketAddress
 
@@ -22,13 +22,11 @@ import java.net.InetSocketAddress
  * configuration parameters.
  *
  */
-trait ProtocolInitializer {
+trait ProtocolInitializer extends ConfigInitializer {
   import ProtocolInitializer._
 
   /** The protocol name, as read from configuration. */
   def name: String
-
-  def registerSubtypes(mapper: ObjectMapper): Unit
 
   /*
    * Router configuration & initialization
@@ -134,10 +132,26 @@ object ProtocolInitializer {
     def serve() = server.serve(addr, factory)
   }
 
+  implicit class MaybeTransform[A](val a: A) extends AnyVal {
+    def maybeTransform(f: Option[A => A]): A = {
+      f match {
+        case Some(f) => f(a)
+        case None => a
+      }
+    }
+  }
+
   implicit class ParamsMaybeWith(val params: Stack.Params) extends AnyVal {
     def maybeWith[T: Stack.Param](p: Option[T]): Stack.Params = {
       p match {
         case Some(t) => params + t
+        case None => params
+      }
+    }
+
+    def maybeWith(ps: Option[Stack.Params]): Stack.Params = {
+      ps match {
+        case Some(ps) => params ++ ps
         case None => params
       }
     }
@@ -153,7 +167,6 @@ abstract class RouterConfig {
   var timeoutMs: Option[Int] = None
   var label: Option[String] = Some(protocol.name)
   var dstPrefix: Option[String] = None
-  var tls: Option[TlsClientConfig] = None
 
   @JsonIgnore
   def routerParams = Stack.Params.empty
@@ -162,19 +175,24 @@ abstract class RouterConfig {
     .maybeWith(failFast.map(FailFastFactory.FailFast(_)))
     .maybeWith(timeoutMs.map(timeout => TimeoutFilter.Param(timeout.millis)))
     .maybeWith(dstPrefix.map(pfx => RoutingFactory.DstPrefix(Path.read(pfx))))
+    .maybeWith(client.map(_.clientParams))
 
   @JsonIgnore
   def router(params: Stack.Params): Router = {
     protocol.router.withParams(params ++ routerParams).serving(
       servers.map(_.mk(protocol, routerParams[Label].label))
-    )
+    ).maybeTransform(client.flatMap(_.tls).map(tls => _.withTls(tls)))
   }
 
   @JsonIgnore
   def protocol: ProtocolInitializer
 }
 
-  class ClientConfig {
-    def clientParams: Stack.Params = Stack.Params.empty
-  }
+class ClientConfig {
+
+  var tls: Option[TlsClientConfig] = None
+
+  @JsonIgnore
+  def clientParams: Stack.Params = Stack.Params.empty
+}
 

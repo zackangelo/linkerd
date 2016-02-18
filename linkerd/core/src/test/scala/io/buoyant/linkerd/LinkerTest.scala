@@ -17,11 +17,7 @@ class LinkerTest extends FunSuite {
     protos: Seq[ProtocolInitializer] = Seq(TestProtocol.Plain, TestProtocol.Fancy),
     namers: Seq[NamerInitializer] = Seq(TestNamer)
   ) = {
-    val mapper = Parser.objectMapper(yaml)
-    for (p <- protos) p.registerSubtypes(mapper)
-    for (n <- namers) n.registerSubtypes(mapper)
-    val cfg = mapper.readValue[LinkerConfig](yaml)
-    cfg.mk
+    Linker.load(yaml, protos ++ namers)
   }
 
   test("basic") {

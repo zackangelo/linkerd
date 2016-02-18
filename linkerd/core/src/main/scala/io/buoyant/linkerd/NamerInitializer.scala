@@ -44,7 +44,4 @@ abstract class NamerConfig {
   def newNamer(): Namer
 }
 
-abstract class NamerInitializer {
-  /** Register config subtype */
-  def registerSubtypes(mapper: ObjectMapper): Unit
-}
+abstract class NamerInitializer extends ConfigInitializer

@@ -10,9 +10,7 @@ import com.twitter.finagle.buoyant.TlsClientPrep
  * Implementers may read params from the config file and must produce a
  * TlsClientPrep module which will control how this router makes TLS requests.
  */
-trait TlsClientInitializer {
-  def registerSubtypes(mapper: ObjectMapper): Unit
-}
+trait TlsClientInitializer extends ConfigInitializer
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "kind")
 trait TlsClientConfig {
