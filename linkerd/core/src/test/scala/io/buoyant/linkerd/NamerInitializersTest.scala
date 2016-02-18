@@ -1,21 +1,28 @@
 package io.buoyant.linkerd
 
 import com.fasterxml.jackson.databind.jsontype.NamedType
+import com.twitter.finagle.naming.NameInterpreter
 import com.twitter.finagle.{Dtab, Name, NameTree, Namer, Path, Stack}
+import io.buoyant.linkerd.config.Parser
 import org.scalatest.FunSuite
 
 class booNamer extends TestNamerConfig {
- override def defaultParams = super.defaultParams + NamerInitializer.Prefix(Path.read("/boo"))
+  override def defaultPrefix = Path.read("/boo")
 }
 
 class booUrnsNamer extends TestNamerConfig {
-  override def defaultParams = super.defaultParams + NamerInitializer.Prefix(Path.read("/boo/urns"))
+  override def defaultPrefix = Path.read("/boo/urns")
 }
 
 class NamerInitializersTest extends FunSuite {
 
-  val mapper = Yaml.objectMapper
-  NamerInitializers.register(mapper, Seq(new NamedType(classOf[booNamer]), new NamedType(classOf[booUrnsNamer])))
+  def interpreter(config: String): NameInterpreter = {
+    val mapper = Parser.objectMapper(config)
+    mapper.registerSubtypes(new NamedType(Parser.jClass[booNamer], "io.buoyant.linkerd.booNamer"))
+    mapper.registerSubtypes(new NamedType(Parser.jClass[booUrnsNamer], "io.buoyant.linkerd.booUrnsNamer"))
+    val cfg = mapper.readValue[Seq[NamerConfig]](config)
+    Linker.nameInterpreter(cfg)
+  }
 
   test("namers evaluated bottom-up") {
     val path = Path.read("/boo/urns")
@@ -24,9 +31,7 @@ class NamerInitializersTest extends FunSuite {
       """|- kind: io.buoyant.linkerd.booUrnsNamer
          |- kind: io.buoyant.linkerd.booNamer
          |""".stripMargin
-    val configs = mapper.readValue[Seq[NamerConfig]](booYaml)
-    val initializers = configs.map(_.initializer.get)
-    NamerInitializers.read(initializers).bind(Dtab.empty, path).sample() match {
+    interpreter(booYaml).bind(Dtab.empty, path).sample() match {
       case NameTree.Leaf(bound: Name.Bound) =>
         assert(bound.id == Path.read("/boo"))
         assert(bound.path == Path.read("/urns"))
@@ -38,9 +43,7 @@ class NamerInitializersTest extends FunSuite {
          |- kind: io.buoyant.linkerd.booUrnsNamer
          |""".stripMargin
 
-    val urnsConfigs = mapper.readValue[Seq[NamerConfig]](booUrnsYaml)
-    val urnsInitializers = configs.map(_.initializer.get)
-    NamerInitializers.read(urnsInitializers).bind(Dtab.empty, path).sample() match {
+    interpreter(booUrnsYaml).bind(Dtab.empty, path).sample() match {
       case NameTree.Leaf(bound: Name.Bound) =>
         assert(bound.id == Path.read("/boo/urns"))
         assert(bound.path == Path.empty)

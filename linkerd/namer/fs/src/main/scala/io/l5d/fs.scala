@@ -1,49 +1,34 @@
 package io.l5d
 
-import com.fasterxml.jackson.core.{JsonParser, JsonToken}
-import com.fasterxml.jackson.databind.DeserializationContext
-import com.twitter.finagle.{Path, Stack}
-import com.twitter.util.{Throw, Try}
-import io.buoyant.linkerd.config.{RootDirNotDirectory, ConfigDeserializer}
-import io.buoyant.linkerd.config.types.Directory
-import io.buoyant.linkerd.{NamerConfig, NamerInitializer, Parsing}
+import com.fasterxml.jackson.annotation.JsonIgnore
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.jsontype.NamedType
+import com.twitter.finagle.Path
+import io.buoyant.linkerd.config.Parser
 import io.buoyant.linkerd.namer.fs.WatchingNamer
-import io.l5d.fs.RootDir
-import java.nio.file.{Path => NioPath, Paths}
+import io.buoyant.linkerd.{NamerConfig, NamerInitializer}
+import io.l5d.fs.FsConfig
+import java.nio.file.{Path => NioPath}
+
+class fs extends NamerInitializer {
+  /** Register config subtype */
+  override def register(mapper: ObjectMapper): Unit = {
+    mapper.registerSubtypes(new NamedType(Parser.jClass[FsConfig], "io.l5d.fs"))
+  }
+}
 
 object fs {
-  case class RootDir(path: Option[NioPath]) {
-    require(path.forall(_.toFile.isDirectory), s"$path is not a directory")
-  }
+  case class FsConfig(path: Option[NioPath]) extends NamerConfig {
+    @JsonIgnore
+    override def defaultPrefix: Path = Path.read("io.l5d.fs")
 
-  implicit object RootDir extends Stack.Param[RootDir] {
-    val default = RootDir(None)
-  }
-
-  val defaultParams = Stack.Params.empty +
-    NamerInitializer.Prefix(Path.Utf8("io.l5d.fs"))
-
-  case class Initializer(params: Stack.Params) extends NamerInitializer(params) {
-    def this() = this(defaultParams)
-    def withParams(ps: Stack.Params) = copy(ps)
-
-    def newNamer() = params[fs.RootDir] match {
-      case fs.RootDir(None) => throw new IllegalArgumentException("io.l5d.fs requires a 'rootDir'")
-      case fs.RootDir(Some(path)) => new WatchingNamer(path, params[NamerInitializer.Prefix].path)
+    /**
+      * Construct a namer.
+      */
+    @JsonIgnore
+    def newNamer() = path match {
+      case None => throw new IllegalArgumentException("io.l5d.fs requires a 'rootDir'")
+      case Some(path) => new WatchingNamer(path, prefix.getOrElse(defaultPrefix))
     }
   }
 }
-
-case class fs(rootDir: Option[NioPath]) extends NamerConfig {
-  override def defaultParams = fs.defaultParams
-  override def params: Try[Stack.Params] =
-    rootDir match {
-      case r@Some(dir) if dir.toFile.isDirectory => super.params.map(_ + RootDir(r))
-      case Some(path) => Throw(RootDirNotDirectory(path))
-      case None => super.params
-    }
-
-  def initializerFactory = fs.Initializer.apply
-}
-
-

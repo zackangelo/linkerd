@@ -59,8 +59,8 @@ object Linkerd extends App {
         if (!f.isFile) throw new IllegalArgumentException(s"config is not a file: $path")
         Source.fromFile(f).mkString
     }
-    val parser = loadParser(configText)
-    Linker.load().read(parser)
+
+    Linker.load(configText)
   }
 
   private[this] def peekJsonObject(s: String): Boolean =
