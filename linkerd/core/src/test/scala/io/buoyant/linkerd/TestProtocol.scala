@@ -115,11 +115,19 @@ abstract class TestProtocol(val name: String) extends ProtocolInitializer.Simple
 }
 
 class PlainConfig extends RouterConfig {
+
+  var servers: Seq[ServerConfig] = Nil
+  var client: Option[ClientConfig] = None
+
   @JsonIgnore
   override def protocol: ProtocolInitializer = TestProtocol.Plain
 }
 
 case class FancyConfig(fancy: Option[Boolean]) extends RouterConfig {
+
+  var servers: Seq[ServerConfig] = Nil
+  var client: Option[ClientConfig] = None
+
   @JsonIgnore
   override def protocol: ProtocolInitializer = TestProtocol.Fancy
 

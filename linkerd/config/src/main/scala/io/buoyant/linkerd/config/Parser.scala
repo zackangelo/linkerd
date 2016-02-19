@@ -3,7 +3,7 @@ package io.buoyant.linkerd.config
 import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer
 import com.fasterxml.jackson.databind.module.SimpleModule
-import com.fasterxml.jackson.databind.{DeserializationContext, ObjectMapper}
+import com.fasterxml.jackson.databind.{DeserializationFeature, DeserializationContext, ObjectMapper}
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import com.fasterxml.jackson.module.scala.experimental.ScalaObjectMapper

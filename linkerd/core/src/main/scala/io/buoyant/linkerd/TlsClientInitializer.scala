@@ -12,7 +12,7 @@ import com.twitter.finagle.buoyant.TlsClientPrep
  */
 trait TlsClientInitializer extends ConfigInitializer
 
-@JsonTypeInfo(use = JsonTypeInfo.Id.CLASS, include = JsonTypeInfo.As.PROPERTY, property = "kind")
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "kind")
 trait TlsClientConfig {
   @JsonIgnore
   def tlsClientPrep[Req, Rsp]: TlsClientPrep.Module[Req, Rsp]

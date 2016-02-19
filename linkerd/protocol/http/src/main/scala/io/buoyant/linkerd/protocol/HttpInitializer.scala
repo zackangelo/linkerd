@@ -53,6 +53,9 @@ case class HttpConfig(
   httpUriInDst: Option[Boolean]
 ) extends RouterConfig {
 
+  var client: Option[ClientConfig] = None
+  var servers: Seq[ServerConfig] = Nil
+
   @JsonIgnore
   override def protocol: ProtocolInitializer = HttpInitializer
 

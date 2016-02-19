@@ -84,7 +84,6 @@ routers:
       .configured(param.Stats(stats))
       .configured(param.Tracer(tracer))
     val router = linker.routers.head.initialize()
-    router.params.foreach(println)
     val server = router.servers.head.serve()
 
     val client = upstream(server)

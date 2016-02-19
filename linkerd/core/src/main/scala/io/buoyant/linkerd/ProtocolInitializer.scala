@@ -1,12 +1,11 @@
 package io.buoyant.linkerd
 
 import com.fasterxml.jackson.annotation.{JsonIgnore, JsonTypeInfo}
-import com.fasterxml.jackson.databind.ObjectMapper
 import com.twitter.conversions.time._
-import com.twitter.finagle.service.{TimeoutFilter, FailFastFactory}
 import com.twitter.finagle._
-import com.twitter.finagle.param.Label
+import com.twitter.finagle.param.{Label, Tracer}
 import com.twitter.finagle.server.StackServer
+import com.twitter.finagle.service.{FailFastFactory, TimeoutFilter}
 import com.twitter.util.Time
 import io.buoyant.linkerd.ProtocolInitializer.{MaybeTransform, ParamsMaybeWith}
 import io.buoyant.router._
@@ -46,7 +45,9 @@ trait ProtocolInitializer extends ConfigInitializer {
     servers: Seq[Server] = Nil
   ) extends Router {
     def params = router.params
-    def withParams(ps: Stack.Params): Router = copy(router = router.withParams(ps))
+
+    def _withParams(ps: Stack.Params): Router =
+      copy(router = router.withParams(ps))
 
     protected def withServers(ss: Seq[Server]): Router = copy(servers = ss)
 
@@ -56,6 +57,7 @@ trait ProtocolInitializer extends ConfigInitializer {
         val Label(name) = params[Label]
         throw new IllegalStateException(s"router '$name' has no servers")
       }
+
       val factory = router.factory()
       val adapted = adapter.andThen(factory)
       val servable = servers.map { server =>
@@ -65,7 +67,6 @@ trait ProtocolInitializer extends ConfigInitializer {
       InitializedRouter(protocol, params, factory, servable)
     }
 
-    // TODO: Fix client params
     override def withTls(tls: TlsClientConfig): Router = {
       val tlsPrep = tls.tlsClientPrep[RouterReq, RouterRsp]
       val clientStack = router.clientStack.replace(Stack.Role("TlsClientPrep"), tlsPrep)
@@ -159,9 +160,11 @@ object ProtocolInitializer {
 }
 
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "protocol")
-abstract class RouterConfig {
-  var servers: Seq[ServerConfig] = Nil
-  var client: Option[ClientConfig] = None
+trait RouterConfig {
+
+  def servers: Seq[ServerConfig]
+  def client: Option[ClientConfig]
+
   var baseDtab: Option[Dtab] = None
   var failFast: Option[Boolean] = None
   var timeoutMs: Option[Int] = None
@@ -179,7 +182,7 @@ abstract class RouterConfig {
 
   @JsonIgnore
   def router(params: Stack.Params): Router = {
-    protocol.router.withParams(params ++ routerParams).serving(
+    protocol.router.configured(params ++ routerParams).serving(
       servers.map(_.mk(protocol, routerParams[Label].label))
     ).maybeTransform(client.flatMap(_.tls).map(tls => _.withTls(tls)))
   }

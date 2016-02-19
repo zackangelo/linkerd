@@ -127,6 +127,7 @@ object LinkerdBuild extends Base {
         .dependsOn(core, Router.mux)
 
       val thrift = projectDir("linkerd/protocol/thrift")
+        .withTests()
         .dependsOn(core, Router.thrift)
 
       val all = projectDir("linkerd/protocol")

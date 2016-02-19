@@ -1,6 +1,7 @@
 package io.buoyant.linkerd
 
 import com.fasterxml.jackson.annotation.JsonIgnore
+import com.twitter.finagle.Stack.{Params, Param}
 import com.twitter.finagle.ssl.Ssl
 import com.twitter.finagle.transport.Transport
 import com.twitter.finagle.{ListeningServer, Stack}
@@ -18,6 +19,8 @@ trait Server {
   def protocol: ProtocolInitializer
 
   def params: Stack.Params
+  def configured[T: Stack.Param](t: T): Server
+  def withParams(ps: Stack.Params): Server
 
   def router: String
   def label: String
@@ -54,6 +57,19 @@ object Server {
 
     def serve(): ListeningServer
   }
+
+  case class Impl(
+    router: String,
+    ip: InetAddress,
+    label: String,
+    port: Int,
+    protocol: ProtocolInitializer,
+    params: Stack.Params
+  ) extends Server {
+    override def configured[T: Param](t: T): Server = copy(params = params + t)
+
+    override def withParams(ps: Params): Server = copy(params = ps)
+  }
 }
 
 class ServerConfig { config =>
@@ -64,28 +80,26 @@ class ServerConfig { config =>
   var label: Option[String] = None
 
   @JsonIgnore
+  protected def serverParams: Stack.Params = Stack.Params.empty
+    .maybeWith(tls.map {
+      case TlsServerConfig(certPath, keyPath) => tlsParam(certPath, keyPath)
+    })
+
+  @JsonIgnore
   private[this] def tlsParam(certificatePath: String, keyPath: String) =
     Transport.TLSServerEngine(
       Some(() => Ssl.server(certificatePath, keyPath, null, null, null))
     )
 
   @JsonIgnore
-  def mk(pi: ProtocolInitializer, routerLabel: String) = new Server {
-    override def router: String = routerLabel
-
-    override def ip: InetAddress = config.ip.getOrElse(InetAddress.getLoopbackAddress)
-
-    override def label: String = config.label.getOrElse(routerLabel)
-
-    override def port: Int = config.port.map(_.port).getOrElse(pi.defaultServerPort)
-
-    override def protocol: ProtocolInitializer = pi
-
-    override def params: Stack.Params = Stack.Params.empty
-      .maybeWith(tls.map {
-        case TlsServerConfig(certPath, keyPath) => tlsParam(certPath, keyPath)
-      })
-  }
+  def mk(pi: ProtocolInitializer, routerLabel: String) = Server.Impl(
+    routerLabel,
+    ip.getOrElse(InetAddress.getLoopbackAddress),
+    label.getOrElse(routerLabel),
+    port.map(_.port).getOrElse(pi.defaultServerPort),
+    pi,
+    serverParams
+  )
 }
 
 case class TlsServerConfig(certPath: String, keyPath: String)
