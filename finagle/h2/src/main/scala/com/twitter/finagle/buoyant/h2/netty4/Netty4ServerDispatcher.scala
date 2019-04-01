@@ -18,8 +18,10 @@ object Netty4ServerDispatcher {
    * response is being written).
    */
   private case class ServiceException(cause: Throwable) extends NoStackTrace
-  private val wrapServiceEx: PartialFunction[Throwable, Future[Response]] = {
-    case e => Future.exception(ServiceException(e))
+  private def wrapServiceEx(req: Request): PartialFunction[Throwable, Future[Response]] = {
+    case e =>
+      req.stream.cancel(Reset.Cancel)
+      Future.exception(ServiceException(e))
   }
 }
 
@@ -59,11 +61,11 @@ class Netty4ServerDispatcher(
       Contexts.local.let(RemoteInfo.Upstream.AddressCtx, transport.context.remoteAddress) {
         transport.context.peerCertificate match {
           case None =>
-            service(req).rescue(wrapServiceEx)
+            service(req).rescue(wrapServiceEx(req))
 
           case Some(cert) =>
             Contexts.local.let(Transport.peerCertCtx, cert) {
-              service(req).rescue(wrapServiceEx)
+              service(req).rescue(wrapServiceEx(req))
             }
         }
       }

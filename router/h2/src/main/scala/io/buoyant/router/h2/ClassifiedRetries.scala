@@ -46,16 +46,18 @@ object ClassifiedRetries {
         next: Stack[ServiceFactory[Request, Response]]
       ): Stack[ServiceFactory[Request, Response]] = {
 
-        val filter = new ClassifiedRetryFilter(
-          params[param.Stats].statsReceiver,
-          params[h2Param.H2Classifier].classifier,
-          params[Backoffs].backoff,
-          params[Retries.Budget].retryBudget,
-          params[ClassificationTimeout].timeout,
-          params[BufferSize].requestBufferSize,
-          params[BufferSize].responseBufferSize
-        )(params[param.HighResTimer].timer)
-        Stack.leaf(role, filter.andThen(next.make(params)))
+        //        val filter = new ClassifiedRetryFilter(
+        //          params[param.Stats].statsReceiver,
+        //          params[h2Param.H2Classifier].classifier,
+        //          params[Backoffs].backoff,
+        //          params[Retries.Budget].retryBudget,
+        //          params[ClassificationTimeout].timeout,
+        //          params[BufferSize].requestBufferSize,
+        //          params[BufferSize].responseBufferSize
+        //        )(params[param.HighResTimer].timer)
+        //        Stack.leaf(role, filter.andThen(next.make(params)))
+
+        Stack.leaf(role, next.make(params)) //skip classified retries
       }
     }
   }

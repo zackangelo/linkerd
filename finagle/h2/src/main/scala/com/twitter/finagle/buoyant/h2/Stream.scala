@@ -18,7 +18,7 @@ import java.nio.charset.{StandardCharsets => JChar}
  * before the Stream is complete may call `cancel()` instead.
  */
 trait Stream {
-  override def toString = s"Stream(isEmpty=$isEmpty, onEnd=${onEnd.poll})"
+  override def toString = s"Stream(isEmpty=$isEmpty, onEnd=${onEnd.poll} onCancel=${onCancel.poll})"
 
   /**
    * This indicates that this is a Stream that will never contain any frames.  Messages that have
@@ -78,7 +78,6 @@ trait Stream {
    * @return a StreamFlatMap StreamProxy wrapping this Stream
    */
   def flatMap(f: Frame => Seq[Frame]): Stream = new StreamFlatMap(this, f)
-
 }
 
 /**
@@ -119,7 +118,7 @@ object Stream {
    * @return a Future that will finish when the whole stream is read
    */
 
-  def readToEnd(stream: Stream): Future[Unit] =
+  def readToEnd(stream: Stream): Future[Unit] = {
     if (stream.isEmpty) Future.Unit
     else
       stream.read().flatMap { frame =>
@@ -128,6 +127,7 @@ object Stream {
           if (end) Future.Unit else readToEnd(stream)
         }
       }
+  }
 
   /**
    * In order to create a stream, we need a mechanism to write to it.
@@ -171,6 +171,19 @@ object Stream {
       endP.updateIfEmpty(Throw(err))
       val _ = cancelP.updateIfEmpty(Return(err))
     }
+
+    //    override def finalize(): Unit = {
+    //      if (frameQ.size > 0) {
+    //        println("**************************************")
+    //        println("queue not empty but being gc'd!!!")
+    //        println("**************************************")
+    //
+    //        frameQ.poll().transform {
+    //          case Return(f) => f.release()
+    //          case _ => Future.Done
+    //        }; ()
+    //      }
+    //    }
   }
 
   private[this] def failOnInterrupt[T](f: Future[T], q: AsyncQueue[Frame]): Future[T] = {
@@ -186,6 +199,14 @@ object Stream {
 
   private class AsyncQueueReaderWriter extends AsyncQueueReader with Writer {
     override protected[this] val frameQ = new AsyncQueue[Frame]
+
+    //    override def finalize(): Unit = {
+    //      if (frameQ.size > 0) {
+    //        println("**************************************")
+    //        println("rw queue not empty but being gc'd!!!")
+    //        println("**************************************")
+    //      }
+    //    }
 
     override def write(f: Frame): Future[Unit] =
       /* If this write is interrupted before the Frame is released, we fail the queue.  This is

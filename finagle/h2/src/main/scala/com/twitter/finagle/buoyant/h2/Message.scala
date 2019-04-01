@@ -124,6 +124,18 @@ object Request {
     }
     override def authority = headers.get(Headers.Authority).getOrElse("")
     override def path = headers.get(Headers.Path).getOrElse("/")
+
+    //    override def finalize(): Unit = {
+    //      try {
+    //        if (stream.nonEmpty) {
+    //          println("**************************************")
+    //          println(s"request stream (${toString}) not empty but being gc'd!!!")
+    //          println("**************************************")
+    //        }
+    //      } finally {
+    //        super.finalize()
+    //      }
+    //    }
   }
 }
 

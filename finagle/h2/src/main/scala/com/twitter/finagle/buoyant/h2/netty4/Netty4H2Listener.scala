@@ -1,6 +1,7 @@
 package com.twitter.finagle.buoyant.h2
 package netty4
 
+import com.twitter.finagle
 import com.twitter.finagle.Stack
 import com.twitter.finagle.netty4.Netty4Listener
 import com.twitter.finagle.netty4.transport.buoyant.BufferingChannelTransport
@@ -30,11 +31,13 @@ object Netty4H2Listener {
         autoRefillConnectionWindow = params[param.FlowControl.AutoRefillConnectionWindow].enabled
       )
 
+      val finagle.param.Stats(statsReceiver) = params[finagle.param.Stats]
+
       Netty4Listener(
         pipelineInit = pipelineInit(codec),
         params = params + Netty4Listener.BackPressure(false),
-        setupMarshalling = identity,
-        transportFactory = new BufferingChannelTransport(_)
+        setupMarshalling = identity /*,
+        transportFactory = new BufferingChannelTransport(_, statsReceiver.scope("buffered"))*/
       )
     }
 

@@ -120,6 +120,16 @@ private[h2] trait Netty4StreamTransport[SendMsg <: Message, RecvMsg <: Message] 
 
   val onRecvMessage: Future[RecvMsg] = recvMsg
 
+  def pendingRequests: Int = stateRef.get() match {
+    case StreamState(SendStreaming(msg), _) if msg.stream.nonEmpty => 1
+    case _ => 0
+  }
+
+  def recvQDepth: Int = stateRef.get() match {
+    case StreamState(_, RecvStreaming(recvQ)) => recvQ.size
+    case _ => 0
+  }
+
   private[this] def getNettyH2State: Http2Stream.State = stateRef.get().toNettyH2State
   private[this] def frameStream: H2FrameStream = H2FrameStream(streamId, getNettyH2State)
 

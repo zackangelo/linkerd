@@ -10,6 +10,8 @@ import java.util
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
+import com.twitter.finagle.stats.StatsReceiver
+
 /**
  * A Transport implementation based on Netty's Channel which buffers writes.  This Transport buffers
  * writes to a queue and schedules an event on the channel's event loop to write the items and then
@@ -28,9 +30,30 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class BufferingChannelTransport(
   ch: nettyChan.Channel,
+  stats: StatsReceiver,
   readQueue: AsyncQueue[Any] = new AsyncQueue[Any],
   omitStackTraceOnInactive: Boolean = false
 ) extends ChannelTransport(ch, readQueue, omitStackTraceOnInactive) {
+
+  val flushCounter = stats.counter("flushes")
+
+  stats.addGauge("read_queue_size") {
+    readQueue.size
+  }
+
+  stats.addGauge("write_queue_size") {
+    writeQueue.size()
+  }
+
+  stats.addGauge("write_chunk_size") {
+    writeChunk.size()
+  }
+
+  val writeCounter = stats.counter("writes")
+
+  val chWriteSuccesses = stats.counter("channel_successes")
+  val chwriteFails = stats.counter("channel_failures")
+  val chTotal = stats.counter("channel_writes")
 
   // Satisfy the done promise when the write completes.
   private case class WriteItem(msg: Any, done: Promise[Unit])
@@ -46,6 +69,7 @@ class BufferingChannelTransport(
   private[this] val writeChunk = new util.ArrayDeque[WriteItem](MaxFlushSize)
 
   override def write(msg: Any): Future[Unit] = {
+    writeCounter.incr()
     val p = new Promise[Unit]()
     writeQueue.add(WriteItem(msg, p))
     scheduleFlush()
@@ -60,6 +84,9 @@ class BufferingChannelTransport(
 
   private[this] val flush: Runnable = { () =>
     var flushed = false
+
+    flushCounter.incr()
+
     while (writeQueue.drainTo(writeChunk, MaxFlushSize) > 0) {
       while (writeChunk.size > 0) {
         val item = writeChunk.poll()
@@ -83,9 +110,17 @@ class BufferingChannelTransport(
   private[this] def toFuture(op: ChannelFuture): Future[Unit] = {
     val p = new Promise[Unit]
     op.addListener { f: ChannelFuture =>
+      chTotal.incr()
+
       if (f.isSuccess) {
+        chWriteSuccesses.incr()
         p.setDone(); ()
       } else {
+        chwriteFails.incr()
+
+        println("*** channel write error ***")
+        f.cause().printStackTrace()
+
         p.setException(ChannelException(f.cause, remoteAddress))
       }
     }

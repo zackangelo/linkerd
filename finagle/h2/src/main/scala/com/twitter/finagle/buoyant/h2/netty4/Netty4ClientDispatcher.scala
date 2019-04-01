@@ -101,9 +101,15 @@ class Netty4ClientDispatcher(
 
       // If the stream is reset prematurely, cancel the pending write
       st.onReset.onFailure {
-        case StreamError.Remote(rst: Reset) => sendFF.flatten.raise(rst)
-        case StreamError.Remote(e) => sendFF.flatten.raise(Reset.Cancel)
-        case e => sendFF.flatten.raise(e)
+        case StreamError.Remote(rst: Reset) =>
+          req.stream.cancel(rst)
+          sendFF.flatten.raise(rst)
+        case StreamError.Remote(e) =>
+          req.stream.cancel(Reset.Cancel)
+          sendFF.flatten.raise(Reset.Cancel)
+        case e =>
+          req.stream.cancel(Reset.Cancel)
+          sendFF.flatten.raise(e)
       }
 
       sendFF.ensure(permit.release())

@@ -11,6 +11,8 @@ import io.netty.channel.ChannelPipeline
 import io.netty.handler.codec.http2._
 import java.net.SocketAddress
 
+import com.twitter.finagle
+
 object Netty4H2Transporter {
 
   def mk(addr: SocketAddress, params0: Stack.Params): Transporter[Http2Frame, Http2Frame, TransportContext] = {
@@ -57,7 +59,9 @@ object Netty4H2Transporter {
         }
       }
 
-    Netty4Transporter.raw(pipelineInit, addr, params, new BufferingChannelTransport(_))
+    val finagle.param.Stats(statsReceiver) = params[finagle.param.Stats]
+
+    Netty4Transporter.raw(pipelineInit, addr, params /*,ch => new BufferingChannelTransport(ch, statsReceiver.scope("buffered"))*/ )
   }
 
   private val FramerKey = "h2 framer"

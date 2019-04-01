@@ -9,6 +9,7 @@ import com.twitter.util._
 import io.netty.handler.codec.http2._
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
+
 import scala.annotation.tailrec
 import scala.collection.JavaConverters._
 
@@ -35,12 +36,36 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
   private[this] case class StreamFailed(cause: Throwable) extends StreamTransport
 
   private[this] val streams: ConcurrentHashMap[Int, StreamTransport] = new ConcurrentHashMap
+
   private[this] val closed: AtomicBoolean = new AtomicBoolean(false)
   protected[this] def isClosed = closed.get
 
   protected[this] val streamsGauge = stats.addGauge("open_streams") {
     streams.size()
   }
+
+  protected[this] val activeStreamsGauge = stats.addGauge("active_streams") {
+    streams.values().asScala.count {
+      case StreamOpen(_) => true
+      case _ => false
+    }
+  }
+
+  protected[this] val failedStreamsGauge = stats.addGauge("failed_streams") {
+    streams.values().asScala.count {
+      case StreamFailed(_) => true
+      case _ => false
+    }
+  }
+
+  protected[this] val resetStreamsGauge = stats.addGauge("reset_streams") {
+    streams.values().asScala.count {
+      case StreamLocalReset => true
+      case _ => false
+    }
+  }
+
+  protected[this] val undrainedStreamsCounter = stats.counter("undrained_streams")
 
   private[this] val closedId: AtomicInteger = new AtomicInteger(0)
   @tailrec private[this] def addClosedId(id: Int): Unit = {
@@ -65,30 +90,50 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
         // Free and clear.
         addClosedId(id)
         streams.remove(id)
+
+        if (open.stream.recvQDepth > 0) {
+          undrainedStreamsCounter.incr()
+        }
+
         log.debug("[%s S:%d] stream closed", prefix, id)
 
       case Throw(StreamError.Remote(e)) =>
         // The remote initiated a reset, so just update the state to closed.
         addClosedId(id)
         streams.remove(id)
+
+        if (open.stream.recvQDepth > 0) {
+          undrainedStreamsCounter.incr()
+        }
+
         e match {
           case rst: Reset => log.debug("[%s S:%d] stream reset from remote: %s", prefix, id, rst)
           case e => log.error(e, "[%s S:%d] stream reset from remote", prefix, id)
         }
 
       case Throw(StreamError.Local(e)) =>
-        // The local side initiated a reset, so send a reset to
-        // the remote.
-        if (streams.replace(id, open, StreamLocalReset)) {
-          log.debug("[%s S:%d] stream reset from local; resetting remote: %s", prefix, id, e)
-          val rst = e match {
-            case rst: Reset => rst
-            case _ => Reset.Cancel
-          }
-          if (!closed.get) { writer.reset(H2FrameStream(id, Http2Stream.State.CLOSED), rst); () }
+        if (open.stream.recvQDepth > 0) {
+          undrainedStreamsCounter.incr()
         }
 
+        // The local side initiated a reset, so send a reset to
+        // the remote.
+        //        if (streams.replace(id, open, StreamLocalReset)) {
+        streams.remove(id)
+        log.debug("[%s S:%d] stream reset from local; resetting remote: %s", prefix, id, e)
+        val rst = e match {
+          case rst: Reset => rst
+          case _ => Reset.Cancel
+        }
+
+        if (!closed.get) { writer.reset(H2FrameStream(id, Http2Stream.State.CLOSED), rst); () }
+      //        }
+
       case Throw(e) =>
+        if (open.stream.recvQDepth > 0) {
+          undrainedStreamsCounter.incr()
+        }
+
         if (streams.replace(id, open, StreamFailed(e))) {
           log.error(e, "[%s S:%d] stream reset", prefix, id)
           if (!closed.get) { writer.reset(H2FrameStream(id, Http2Stream.State.CLOSED), Reset.InternalError); () }
@@ -102,6 +147,21 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
 
   private[this] def readFromTransport(): Future[Http2Frame] =
     transport.read().rescue(wrapRemoteEx)
+
+  private[this] def releaseFrame(f: Http2Frame): Unit =
+    f match {
+      case data: DefaultHttp2DataFrame =>
+        data.release(); ()
+      case headers: DefaultHttp2HeadersFrame =>
+      case rst: DefaultHttp2ResetFrame =>
+      case wu: DefaultHttp2WindowUpdateFrame =>
+      case unk: DefaultHttp2UnknownFrame =>
+        log.warning(s"recv'd unkown frame when local reset: $unk")
+        unk.release(); ()
+      case ga: DefaultHttp2GoAwayFrame =>
+        ga.release(); ()
+      case _ =>
+    }
 
   protected[this] def demux(): Future[Unit] = {
     lazy val loop: Try[Http2Frame] => Future[Unit] = {
@@ -124,7 +184,8 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
         log.error(e, "[%s] dispatcher failed", prefix)
         goAway(GoAway.InternalError).before(Future.exception(e))
 
-      case Return(_: Http2GoAwayFrame) =>
+      case Return(f: Http2GoAwayFrame) =>
+        f.release()
         if (resetStreams(Reset.Cancel)) transport.close()
         else Future.Unit
 
@@ -135,12 +196,15 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
       case Return(f: Http2StreamFrame) =>
         f.stream.id match {
           case 0 =>
+            releaseFrame(f)
             val e = new IllegalArgumentException(s"unexpected frame on stream 0: ${f.name}")
             goAway(GoAway.ProtocolError).before(Future.exception(e))
 
           case id =>
             streams.get(id) match {
               case null if id <= closedId.get =>
+                releaseFrame(f)
+
                 // The stream has been closed and should know better than
                 // to send us messages.
                 writer.reset(H2FrameStream(id, Http2Stream.State.CLOSED), Reset.Closed).before {
@@ -160,6 +224,19 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
                 else transport.read().transform(loop)
 
               case StreamLocalReset | StreamFailed(_) =>
+                // if we receive a data frame when reset,
+                // release its contents before we move onto the next frame
+                f match {
+                  case data: DefaultHttp2DataFrame => data.release()
+                  case headers: DefaultHttp2HeadersFrame =>
+                  case rst: DefaultHttp2ResetFrame =>
+                  case wu: DefaultHttp2WindowUpdateFrame =>
+                  case unk: DefaultHttp2UnknownFrame =>
+                    log.warning(s"recv'd unkown frame when local reset: $unk")
+                    unk.release()
+                  case _ =>
+                }
+
                 // The local stream was already reset, but we may still
                 // receive frames until the remote is notified.  Just
                 // disregard these frames.
@@ -169,6 +246,7 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
         }
 
       case Return(f) =>
+        releaseFrame(f)
         log.error("[%s] unexpected frame: %s", prefix, f.name)
         val e = new IllegalArgumentException(s"unexpected frame on new stream: ${f.name}")
         goAway(GoAway.ProtocolError).before(Future.exception(e))
@@ -181,7 +259,7 @@ trait Netty4DispatcherBase[SendMsg <: Message, RecvMsg <: Message] {
 
   private[this] def resetStreams(err: Reset): Boolean =
     if (closed.compareAndSet(false, true)) {
-      log.debug("[%s] resetting all streams: %s", prefix, err)
+      log.warning("[%s] resetting all streams: %s", prefix, err)
       streams.values.asScala.foreach {
         case StreamOpen(st) => st.reset(err, local = false)
         case _ =>
